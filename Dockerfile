@@ -77,5 +77,4 @@ COPY . .
 
 EXPOSE 5000
 
-# Run migrations then start server
-CMD ["sh", "-c", "npx prisma migrate deploy && node src/index.js"]
+CMD ["sh", "-c", "npx prisma migrate deploy && node src/server.js"]
