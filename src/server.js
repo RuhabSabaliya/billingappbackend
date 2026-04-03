@@ -51,3 +51,17 @@ const shutdown = () => {
 
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
+
+process.on('uncaughtException', (err) => {
+    logger.error(`Uncaught Exception: ${err.message}`);
+    process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    logger.error(`Unhandled Rejection at: ${promise}, reason: ${reason}`);
+    server.close(() => {
+        import('./config/prisma.js').then(({ prisma }) => {
+            prisma.$disconnect().finally(() => process.exit(1));
+        });
+    });
+});

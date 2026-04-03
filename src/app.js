@@ -2,17 +2,28 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import rateLimit from 'express-rate-limit';
 import { logger } from './utils/logger.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import metricsRoutes, { metricsMiddleware } from './utils/metrics.js';
 
 const app = express();
 
+// Rate Limiting
+const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    limit: 500, // Limit each IP to 500 requests per `window`
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    message: { success: false, message: 'Too many requests from this IP, please try again later.' }
+});
+
 // Security and utility middlewares
 app.use(helmet());
-app.use(cors({ origin: '*' })); // Allow frontend proxy or direct calls
+app.use(cors({ origin: process.env.FRONTEND_URL || '*' })); // Allow frontend proxy or direct calls
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use('/api', limiter); // Apply rate limiting to all API routes
 
 // Metrics tracing
 app.use(metricsMiddleware);
