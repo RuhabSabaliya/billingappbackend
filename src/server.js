@@ -36,8 +36,10 @@ const shutdown = () => {
 
     server.close(() => {
         logger.info('HTTP server closed.');
-        // TODO: Disconnect Prisma and Redis here
-        process.exit(0);
+        // Disconnect Prisma here
+        import('./config/prisma.js').then(({ prisma }) => {
+            prisma.$disconnect().finally(() => process.exit(0));
+        });
     });
 
     // Force close after 10s if dangling connections persist

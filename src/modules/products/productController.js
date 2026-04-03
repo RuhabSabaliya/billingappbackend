@@ -1,10 +1,6 @@
 import { logger } from '../../utils/logger.js';
-import redisClient from '../../config/redis.js';
 import { prisma } from '../../config/prisma.js';
 import { emitEvent } from '../../realtime/io.js';
-
-const CACHE_KEY = (userId) => `products:${userId}:all`;
-const CAT_CACHE_KEY = (userId) => `categories:${userId}:all`;
 
 export const getProducts = async (req, res, next) => {
     try {
@@ -13,11 +9,6 @@ export const getProducts = async (req, res, next) => {
         const limit = parseInt(req.query.limit) || 50;
         const offset = (page - 1) * limit;
 
-        if (page === 1) {
-            const cached = await redisClient.get(CACHE_KEY(userId));
-            if (cached) return res.status(200).json({ success: true, data: JSON.parse(cached) });
-        }
-
         const products = await prisma.product.findMany({
             where: { userId, isActive: true },
             include: { category: true },
@@ -25,10 +16,6 @@ export const getProducts = async (req, res, next) => {
             skip: offset,
             take: limit
         });
-
-        if (page === 1) {
-            await redisClient.set(CACHE_KEY(userId), JSON.stringify(products), 'EX', 3600);
-        }
 
         res.status(200).json({ success: true, data: products });
     } catch (err) {
@@ -73,9 +60,6 @@ export const createProduct = async (req, res, next) => {
                 });
 
             resolvedCategoryId = category.id;
-
-            // Invalidate category cache so UI picks up the new category instantly
-            await redisClient.del(CAT_CACHE_KEY(userId));
         }
 
         if (!resolvedCategoryId) {
@@ -98,9 +82,6 @@ export const createProduct = async (req, res, next) => {
             },
             include: { category: true },
         });
-
-        // Invalidate product cache
-        await redisClient.del(CACHE_KEY(userId));
 
         // Real-time: notify all connected dashboards
         emitEvent('INVENTORY_UPDATED', newProduct);
@@ -148,8 +129,6 @@ export const updateProduct = async (req, res, next) => {
                 });
 
             resolvedCategoryId = category.id;
-
-            await redisClient.del(CAT_CACHE_KEY(userId));
         }
 
         if (!resolvedCategoryId) {
@@ -180,8 +159,6 @@ export const updateProduct = async (req, res, next) => {
             include: { category: true }
         });
 
-        await redisClient.del(CACHE_KEY(userId));
-
         emitEvent('INVENTORY_UPDATED', updatedProduct);
 
         res.status(200).json({ success: true, data: updatedProduct });
@@ -205,8 +182,6 @@ export const deleteProduct = async (req, res, next) => {
             data: { isActive: false, stock: 0 },
             include: { category: true },
         });
-
-        await redisClient.del(CACHE_KEY(userId));
         res.status(200).json({ success: true, data: id });
     } catch (err) {
         if (err.code === 'P2025') return res.status(404).json({ success: false, message: 'Product not found' });

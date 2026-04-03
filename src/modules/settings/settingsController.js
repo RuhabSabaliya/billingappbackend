@@ -1,6 +1,5 @@
-import redisClient from '../../config/redis.js';
-
-const SETTINGS_KEY = 'app:settings';
+// In-memory store for settings
+let inMemorySettings = null;
 
 const DEFAULT_SETTINGS = {
     storeName: 'BillEase POS',
@@ -14,11 +13,10 @@ const DEFAULT_SETTINGS = {
 
 export const getSettings = async (req, res, next) => {
     try {
-        const data = await redisClient.get(SETTINGS_KEY);
-        if (!data) {
+        if (!inMemorySettings) {
             return res.status(200).json(DEFAULT_SETTINGS);
         }
-        res.status(200).json(JSON.parse(data));
+        res.status(200).json(inMemorySettings);
     } catch (error) {
         next(error);
     }
@@ -26,11 +24,10 @@ export const getSettings = async (req, res, next) => {
 
 export const updateSettings = async (req, res, next) => {
     try {
-        const currentDataRaw = await redisClient.get(SETTINGS_KEY);
-        const currentData = currentDataRaw ? JSON.parse(currentDataRaw) : DEFAULT_SETTINGS;
+        const currentData = inMemorySettings || DEFAULT_SETTINGS;
         
         const updatedData = { ...currentData, ...req.body };
-        await redisClient.set(SETTINGS_KEY, JSON.stringify(updatedData));
+        inMemorySettings = updatedData;
         
         res.status(200).json(updatedData);
     } catch (error) {

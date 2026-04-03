@@ -126,22 +126,63 @@ export const createBill = async (req, res, next) => {
                 }
             }
 
-            // Security: ensure referenced products belong to this user.
+            // Security: ensure referenced products belong to this user and fetch exact DB prices
             const productIds = items.map((it) => it.productId).filter(Boolean);
+            
+            let verifiedTotalAmount = 0;
+            let verifiedItemsPayload = [];
+
             if (productIds.length > 0) {
                 const validProducts = await tx.product.findMany({
                     where: { id: { in: productIds }, userId: dbUser.id },
-                    select: { id: true },
+                    select: { id: true, price: true, name: true },
                 });
-                const validSet = new Set(validProducts.map((p) => p.id));
-                const bad = productIds.filter((pid) => !validSet.has(pid));
+                const validMap = new Map(validProducts.map((p) => [p.id, p]));
+                
+                const bad = productIds.filter((pid) => !validMap.has(pid));
                 if (bad.length) {
                     const e = new Error('Forbidden: One or more products do not belong to this user.');
                     e.statusCode = 403;
                     e.isOperational = true;
                     throw e;
                 }
+
+                verifiedItemsPayload = items.map((item) => {
+                    if (!item.productId) {
+                        verifiedTotalAmount += Number(item.price) * item.quantity;
+                        return {
+                            productId: null,
+                            productName: item.productName,
+                            price: item.price,
+                            quantity: item.quantity
+                        };
+                    }
+                    const dbProd = validMap.get(item.productId);
+                    const safePrice = Number(dbProd.price); 
+                    verifiedTotalAmount += safePrice * item.quantity;
+
+                    return {
+                        productId: item.productId,
+                        productName: dbProd.name,
+                        price: safePrice,
+                        quantity: item.quantity
+                    };
+                });
+            } else {
+                verifiedItemsPayload = items.map(item => {
+                    verifiedTotalAmount += Number(item.price) * item.quantity;
+                    return {
+                        productId: null,
+                        productName: item.productName,
+                        price: item.price,
+                        quantity: item.quantity
+                    };
+                });
             }
+
+            const safeTaxAmount = Number(taxAmount) || 0;
+            const safeDiscountAmount = Number(discountAmount) || 0;
+            const finalCalculatedTotal = verifiedTotalAmount - safeDiscountAmount + safeTaxAmount;
 
             const billNumber = await generateBillNumber(tx);
 
@@ -152,18 +193,13 @@ export const createBill = async (req, res, next) => {
                     billNumber,
                     userId: dbUser.id,
                     customerId: resolvedCustomerId,
-                    totalAmount,
-                    taxAmount,
-                    discountAmount,
+                    totalAmount: finalCalculatedTotal,
+                    taxAmount: safeTaxAmount,
+                    discountAmount: safeDiscountAmount,
                     status: 'COMPLETED',
                     ...(createdAt ? { createdAt: new Date(createdAt) } : {}),
                     items: {
-                        create: items.map((item) => ({
-                            productId: item.productId,
-                            productName: item.productName,
-                            price: item.price,
-                            quantity: item.quantity
-                        }))
+                        create: verifiedItemsPayload
                     }
                 },
                 include: { items: true, customer: true }
